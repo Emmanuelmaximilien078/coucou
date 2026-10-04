@@ -70,9 +70,12 @@ It works from any terminal — Windows Terminal, PowerShell, VS Code, Git Bash.
 
 ## Chat and keys
 
-**Settings… → Claude** takes your Anthropic API key. Keys live in the **Windows
-Credential Manager**, never on disk and never in the interface — the island can
-only ask whether a key exists. Same for every integration key.
+**Settings… → Chat** picks who answers: Claude (Anthropic), DeepSeek, GLM
+(Zhipu), OpenRouter, OpenAI, or any OpenAI-compatible endpoint under "Custom" —
+a proxy or a local Ollama/LM Studio server (`http://localhost:11434/v1`). Each
+provider has its own model list, and "Custom…" accepts any model id. Keys live
+in the **Windows Credential Manager**, never on disk and never in the interface
+— the island can only ask whether a key exists. Same for every integration key.
 
 No telemetry. The only network requests Coucou makes are to the services you
 configure yourself.

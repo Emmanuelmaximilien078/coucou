@@ -92,6 +92,10 @@ export interface Settings {
   hooksInstalled: boolean;
   /** Claude model used by the chat. */
   model: string;
+  /** Which chat provider answers: "anthropic", "deepseek", "zhipu", "openrouter", "openai" or "custom". */
+  chatProvider: string;
+  /** Base URL for the "custom" provider (any OpenAI-compatible endpoint). */
+  customBaseUrl: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,6 +110,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autostart: false,
   hooksInstalled: false,
   model: "claude-opus-5",
+  chatProvider: "anthropic",
+  customBaseUrl: "",
 };
 
 type Listener = () => void;

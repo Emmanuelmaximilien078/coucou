@@ -171,87 +171,195 @@ function claudeSection(status: HookStatus): HTMLElement {
   return section;
 }
 
-// ── Claude API section ────────────────────────────────────────────────────────
+// ── Chat section ──────────────────────────────────────────────────────────────
 
-const MODELS: [string, string][] = [
-  ["claude-opus-5", "Claude Opus 5"],
-  ["claude-sonnet-5", "Claude Sonnet 5"],
-  ["claude-haiku-4-5", "Claude Haiku 4.5"],
+interface ChatProviderDef {
+  id: string;
+  label: string;
+  /** Credential Manager key for this provider's API key. */
+  keyName: string;
+  /** Placeholder for an unstored key. */
+  placeholder: string;
+  /** Known model ids; anything else goes through "Custom…". */
+  models: [string, string][];
+  /** The custom provider points at any OpenAI-compatible base URL. */
+  custom?: boolean;
+}
+
+const CHAT_PROVIDERS: ChatProviderDef[] = [
+  {
+    id: "anthropic", label: "Claude (Anthropic)", keyName: "anthropic-api-key", placeholder: "sk-ant-...",
+    models: [["claude-opus-5", "Claude Opus 5"], ["claude-sonnet-5", "Claude Sonnet 5"], ["claude-haiku-4-5", "Claude Haiku 4.5"]],
+  },
+  {
+    id: "deepseek", label: "DeepSeek", keyName: "deepseek-api-key", placeholder: "sk-...",
+    models: [["deepseek-chat", "DeepSeek Chat"], ["deepseek-reasoner", "DeepSeek Reasoner"], ["deepseek-flash", "DeepSeek Flash"]],
+  },
+  {
+    id: "zhipu", label: "GLM (Zhipu)", keyName: "zhipu-api-key", placeholder: "Zhipu API key…",
+    models: [["glm-5.3-flash", "GLM-5.3-Flash"], ["glm-5.3-flashx", "GLM-5.3-FlashX (200 tok/s)"], ["glm-4.6", "GLM-4.6"], ["glm-4.5-flash", "GLM-4.5-Flash (free)"]],
+  },
+  {
+    id: "openrouter", label: "OpenRouter", keyName: "openrouter-api-key", placeholder: "sk-or-...",
+    models: [["z-ai/glm-5.3-flash", "GLM-5.3-Flash"], ["deepseek/deepseek-chat", "DeepSeek Chat"], ["anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5"], ["openai/gpt-5-mini", "GPT-5 Mini"]],
+  },
+  {
+    id: "openai", label: "OpenAI", keyName: "openai-api-key", placeholder: "sk-...",
+    models: [["gpt-5", "GPT-5"], ["gpt-5-mini", "GPT-5 Mini"], ["gpt-4o", "GPT-4o"]],
+  },
+  {
+    id: "custom", label: "Custom (OpenAI-compatible)", keyName: "custom-api-key", placeholder: "API key (optional)", custom: true,
+    models: [],
+  },
 ];
 
-function apiSection(hasKey: boolean): HTMLElement {
-  const dot = statusDot(hasKey);
-  const state = h("span", { class: "hint", text: hasKey ? "Key saved in the Windows Credential Manager." : "No key yet — the chat needs one." });
+function chatSection(): HTMLElement {
+  const section = h("section", {}, h("h2", {}, statusDot(false), h("span", { text: "Chat" })));
+  const dot = section.querySelector("i") as HTMLElement;
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  section.append(body);
 
-  const field = h("input", {
-    type: "password",
-    placeholder: hasKey ? "••••••••••••  (stored)" : "sk-ant-...",
-    style: "flex:1 1 auto;min-width:0",
-    autocomplete: "off",
-    spellcheck: "false",
-  }) as HTMLInputElement;
+  const def = () => CHAT_PROVIDERS.find((p) => p.id === settings.chatProvider) ?? CHAT_PROVIDERS[0];
 
-  const saveBtn = h("button", { class: "primary", text: "Save key" });
-  const clearBtn = h("button", { class: "danger", text: "Remove" });
-  const feedback = h("div", {});
-
-  async function refresh() {
-    const present = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
+  async function draw() {
+    clear(body);
+    const d = def();
+    const present = (await Bridge.secretPresent(d.keyName)) ?? false;
     dot.style.background = present ? "#22c55e" : "#f4505e";
-    state.textContent = present
-      ? "Key saved in the Windows Credential Manager."
-      : "No key yet — the chat needs one.";
-    field.placeholder = present ? "••••••••••••  (stored)" : "sk-ant-...";
+
+    const provider = h("select", {}) as HTMLSelectElement;
+    for (const p of CHAT_PROVIDERS) provider.append(h("option", { value: p.id, text: p.label }));
+    provider.value = d.id;
+    provider.addEventListener("change", () => {
+      settings.chatProvider = provider.value;
+      const nd = def();
+      // A model id only makes sense for the provider it came from.
+      if (!nd.custom && !nd.models.some(([id]) => id === settings.model)) {
+        settings.model = nd.models[0]?.[0] ?? "";
+      }
+      void save();
+      void draw();
+    });
+
+    body.append(
+      h("div", {
+        class: "hint",
+        text: "Who answers in the chat. Each provider keeps its own key in the Windows Credential Manager, never on disk.",
+      }),
+      h("div", { class: "row" }, h("label", { text: "Provider" }), provider),
+    );
+
+    // The key — storage, placeholder and status dot follow the provider.
+    const field = h("input", {
+      type: "password",
+      placeholder: present ? "••••••••••••  (stored)" : d.placeholder,
+      style: "flex:1 1 auto;min-width:0",
+      autocomplete: "off",
+      spellcheck: "false",
+    }) as HTMLInputElement;
+    const saveBtn = h("button", { class: "primary", text: "Save key" });
+    const clearBtn = h("button", { class: "danger", text: "Remove" });
+    const feedback = h("div", {});
     clearBtn.style.display = present ? "" : "none";
+
+    saveBtn.addEventListener("click", async () => {
+      const value = field.value.trim();
+      if (!value) return;
+      clear(feedback);
+      try {
+        await Bridge.secretSet(d.keyName, value);
+        field.value = "";
+        feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
+        await draw();
+      } catch (err) {
+        feedback.append(h("div", { class: "notice err", text: `Could not save: ${String(err)}` }));
+      }
+    });
+
+    clearBtn.addEventListener("click", async () => {
+      clear(feedback);
+      try {
+        await Bridge.secretClear(d.keyName);
+        feedback.append(h("div", { class: "notice ok", text: "Key removed." }));
+        await draw();
+      } catch (err) {
+        feedback.append(h("div", { class: "notice err", text: `Could not remove: ${String(err)}` }));
+      }
+    });
+
+    body.append(h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn));
+
+    if (d.custom) {
+      const base = h("input", {
+        type: "text",
+        value: settings.customBaseUrl,
+        placeholder: "https://host/v1 — Ollama: http://localhost:11434/v1",
+        style: "flex:1 1 auto;min-width:0",
+        autocomplete: "off",
+        spellcheck: "false",
+      }) as HTMLInputElement;
+      base.addEventListener("change", () => {
+        settings.customBaseUrl = base.value.trim();
+        void save();
+      });
+      body.append(h("div", { class: "row" }, h("label", { text: "Base URL" }), base));
+    }
+
+    // The model — a list per provider, with Custom… for any other id.
+    if (d.custom) {
+      const model = h("input", {
+        type: "text",
+        value: settings.model,
+        placeholder: "model id, e.g. llama3.2",
+        style: "flex:1 1 auto;min-width:0",
+        autocomplete: "off",
+        spellcheck: "false",
+      }) as HTMLInputElement;
+      model.addEventListener("change", () => {
+        settings.model = model.value.trim();
+        void save();
+      });
+      body.append(h("div", { class: "row" }, h("label", { text: "Model" }), model));
+    } else {
+      const model = h("select", {}) as HTMLSelectElement;
+      for (const [id, label] of d.models) model.append(h("option", { value: id, text: label }));
+      model.append(h("option", { value: "__custom__", text: "Custom…" }));
+      const custom = h("input", {
+        type: "text",
+        placeholder: "model id",
+        style: "flex:1 1 auto;min-width:0",
+        autocomplete: "off",
+        spellcheck: "false",
+      }) as HTMLInputElement;
+      if (d.models.some(([id]) => id === settings.model)) {
+        model.value = settings.model;
+        custom.style.display = "none";
+      } else {
+        model.value = "__custom__";
+        custom.value = settings.model;
+      }
+      model.addEventListener("change", () => {
+        if (model.value === "__custom__") {
+          custom.style.display = "";
+          custom.focus();
+          return;
+        }
+        custom.style.display = "none";
+        settings.model = model.value;
+        void save();
+      });
+      custom.addEventListener("change", () => {
+        settings.model = custom.value.trim();
+        void save();
+      });
+      body.append(h("div", { class: "row" }, h("label", { text: "Model" }), model, custom));
+    }
+
+    body.append(feedback);
   }
 
-  saveBtn.addEventListener("click", async () => {
-    const value = field.value.trim();
-    if (!value) return;
-    clear(feedback);
-    try {
-      await Bridge.secretSet("anthropic-api-key", value);
-      field.value = "";
-      feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: `Could not save: ${String(err)}` }));
-    }
-  });
-
-  clearBtn.addEventListener("click", async () => {
-    clear(feedback);
-    try {
-      await Bridge.secretClear("anthropic-api-key");
-      feedback.append(h("div", { class: "notice ok", text: "Key removed." }));
-      await refresh();
-    } catch (err) {
-      feedback.append(h("div", { class: "notice err", text: `Could not remove: ${String(err)}` }));
-    }
-  });
-
-  const model = h("select", {}) as HTMLSelectElement;
-  for (const [id, label] of MODELS) model.append(h("option", { value: id, text: label }));
-  if (!MODELS.some(([id]) => id === settings.model)) {
-    model.append(h("option", { value: settings.model, text: settings.model }));
-  }
-  model.value = settings.model;
-  model.addEventListener("change", () => {
-    settings.model = model.value;
-    void save();
-  });
-
-  clearBtn.style.display = hasKey ? "" : "none";
-
-  return h(
-    "section",
-    {},
-    h("h2", {}, dot, h("span", { text: "Claude" })),
-    state,
-    h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: "Model" }), model),
-    feedback,
-  );
+  void draw();
+  return section;
 }
 
 // ── Integrations section ──────────────────────────────────────────────────────
@@ -429,8 +537,6 @@ async function main() {
     installed: false, settingsPath: "", hookPath: "", hookReady: false,
   };
 
-  const hasKey = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
-
   const keys = [
     "stripe-api-key", "github-token", "vercel-token",
     "n8n-url", "n8n-api-key", "resend-api-key", "notion-api-key", "calcom-api-key",
@@ -442,7 +548,7 @@ async function main() {
   root.append(
     h("h1", {}, h("span", { text: "Coucou" }), h("span", { class: "version", text: version })),
     claudeSection(status),
-    apiSection(hasKey),
+    chatSection(),
     integrationsSection(present),
     generalSection(),
     h("div", {

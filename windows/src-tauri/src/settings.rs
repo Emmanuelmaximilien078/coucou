@@ -20,10 +20,22 @@ pub struct Settings {
     /// Defaulted explicitly so a settings.json written by an older build still loads.
     #[serde(default = "default_model")]
     pub model: String,
+    /// Which chat provider answers: "anthropic" (the original), "deepseek",
+    /// "zhipu" (GLM), "openrouter", "openai", or "custom" (any OpenAI-compatible
+    /// base URL). Defaulted for the same reason as `model`.
+    #[serde(default = "default_provider")]
+    pub chat_provider: String,
+    /// Base URL for the "custom" provider, e.g. a self-hosted endpoint.
+    #[serde(default)]
+    pub custom_base_url: String,
 }
 
 fn default_model() -> String {
     crate::claude::DEFAULT_MODEL.to_string()
+}
+
+fn default_provider() -> String {
+    crate::claude::DEFAULT_PROVIDER.to_string()
 }
 
 impl Default for Settings {
@@ -43,6 +55,8 @@ impl Default for Settings {
             autostart: false,
             hooks_installed: false,
             model: default_model(),
+            chat_provider: default_provider(),
+            custom_base_url: String::new(),
         }
     }
 }
